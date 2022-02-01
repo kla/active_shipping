@@ -852,7 +852,8 @@ module ActiveShipping
           shipment_events = activities.map do |activity|
             description = activity.at('Status/StatusType/Description').try(:text)
             type_code = activity.at('Status/StatusType/Code').try(:text)
-            zoneless_time = parse_ups_datetime(:time => activity.at('Time'), :date => activity.at('Date'))
+            zoneless_time = parse_ups_datetime(:time => activity.at('Time'), :date => activity.at('Date'),
+              :gmt_time => activity.at('GMTTime'), :gmt_date => activity.at('GMTDate', :gmt_offset => activity.at('GMTOffset')))
             location = location_from_address_node(activity.at('ActivityLocation/Address'))
             ShipmentEvent.new(description, zoneless_time, location, description, type_code)
           end
@@ -957,8 +958,22 @@ module ActiveShipping
       )
     end
 
+    def parse_ups_gmt_datetime(options)
+      time = Time.parse("#{options[:gmt_date]} #{options[:gmt_time]}").utc
+      time += time + Time.zone_offset(options[:gmt_offset]) if options[:gmt_offset]
+
+      # return in format expected in <Time> and <Date>
+      [ time.strftime("%H%M%S"), time.strftime("%Y%m%d") ]
+    end
+
     def parse_ups_datetime(options = {})
-      time, date = options[:time].try(:text), options[:date].text
+      time, date = options[:time].try(:text), options[:date].try(:text)
+
+      # Time/Date not available sometimes so check for GMTTime/GMTDate
+      if time.nil? && options[:gmt_time]
+        time, date = parse_ups_gmt_datetime(options)
+      end
+
       if time.nil?
         hour, minute, second = 0
       else
